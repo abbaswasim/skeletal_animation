@@ -1,0 +1,3 @@
+[submodule "thirdparty/roar"]
+	path = thirdparty/roar
+	url = https://github.com/abbaswasim/roar
