@@ -26,14 +26,17 @@
 #include <map>
 
 #include "geometry.hpp"
+#include "skeletal_animation.hpp"
 #include "math/rormatrix4_functions.hpp"
 
 #define SCR_Width 1024
 #define SCR_Height 768
 
-float     aspect_ratio = 1.0f;
-float     box_color[4] = {0.0f, 1.0f, 0.0f, 0.5f};
-Geometry *cube         = nullptr;
+float     aspect_ratio      = 1.0f;
+float     skeleton_color[4] = {1.0f, 0.0f, 0.0f, 0.5f};
+float     box_color[4]      = {0.0f, 1.0f, 0.0f, 0.5f};
+Geometry *cube              = nullptr;
+Geometry *astro_boy_skeleton = nullptr;
 
 static const char *vertex_shader_src =
 	"#version 330\n"
@@ -59,6 +62,9 @@ void idle()
 void setup()
 {
 	cube = create_cube(3.0f, vertex_shader_src, fragment_shader_src);
+	// setup skeleton and get world matrices
+	auto astro_boy_matrices = get_world_matrices_for_skeleton(astro_boy_tree, 64);
+	astro_boy_skeleton =  get_lines_from_skeleton(astro_boy_matrices, vertex_shader_src, fragment_shader_src);
 }
 
 void animate()
@@ -66,11 +72,14 @@ void animate()
 
 ror::Matrix4f get_mvp()
 {
-	auto translation = ror::matrix4_translation(0.0f, 0.0f, -10.0f);
-	auto rotation_y  = ror::matrix4_rotation_around_y(ror::to_radians((float) glfwGetTime() * 70));
+	// Rotation around X to bring Y-Up
+	auto rotation_x  = ror::matrix4_rotation_around_x(ror::to_radians(-90.0f));
+
+	auto translation = ror::matrix4_translation(0.0f, -3.0f, -10.0f);
+	auto rotation_y  = ror::matrix4_rotation_around_y(ror::to_radians(static_cast<float>(glfwGetTime() * 70)));
 	auto projection  = ror::make_perspective(ror::to_radians(60.0f), aspect_ratio, 0.5f, 100.0f);
 
-	auto model = translation * rotation_y;
+	auto model = translation * rotation_y * rotation_x;
 
 	return projection * model;
 }
@@ -83,6 +92,7 @@ void display()
 	auto mvp = get_mvp();
 
 	cube->draw(mvp.m_values, GL_LINES, box_color);
+	astro_boy_skeleton->draw(mvp.m_values, GL_LINES, skeleton_color);
 }
 
 void key(GLFWwindow *window, int k, int s, int action, int mods)
