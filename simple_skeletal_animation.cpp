@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <map>
+#include <utility>
 #include <vector>
 
 #include "geometry.hpp"
@@ -38,6 +39,8 @@
 bool show_skin     = true;
 bool show_skeleton = true;
 bool show_cube     = false;
+
+bool do_animate = true;
 
 float             aspect_ratio       = 1.0f;
 Geometry *        cube               = nullptr;
@@ -176,16 +179,43 @@ void setup()
 	astro_boy_skin->update_matrices(astro_boy_joint_matrices);
 }
 
+std::pair<unsigned int, double> get_keyframe_time()
+{
+	double new_time = 0.0;
+
+	if (do_animate)
+		new_time = glfwGetTime();
+
+	auto delta = new_time - old_time;
+
+	// Note this is very specific to AstroBoy
+	static double accumulate_time  = 0.0;
+	static int    current_keyframe = 0;
+	const double  pf               = 1.166670 / 36.0;
+
+	accumulate_time += delta;
+	if (do_animate)
+		current_keyframe = accumulate_time / pf;
+
+	if (accumulate_time > 1.66670 || (current_keyframe > astro_boy_animation_keyframes_count - 5))        // Last 5 frames don't quite work with the animation loop, so ignored
+	{
+		accumulate_time  = 0.0;
+		current_keyframe = 0;
+	}
+
+	old_time = new_time;
+
+	return std::make_pair(current_keyframe, delta);
+}
+
 void animate()
 {
 	std::vector<ror::Matrix4f> astro_boy_joint_matrices;
 	astro_boy_joint_matrices.reserve(astro_boy_nodes_count);
 
-	double new_time = glfwGetTime();
+	auto [current_keyframe, delta_time] = get_keyframe_time();
 
-	auto astro_boy_matrices = get_world_matrices_for_skinning(astro_boy_tree, astro_boy_nodes_count, new_time - old_time);
-
-	old_time = new_time;
+	auto astro_boy_matrices = get_world_matrices_for_skinning(astro_boy_tree, astro_boy_nodes_count, current_keyframe, delta_time);
 
 	for (size_t i = 0; i < astro_boy_matrices.size(); ++i)
 	{
@@ -198,11 +228,15 @@ void animate()
 
 void get_mvp(ror::Matrix4f &out_model, ror::Matrix4f &out_view, ror::Matrix4f &out_projection)
 {
+	static float current_rotation = 0.0f;
+
+	current_rotation = do_animate ? static_cast<float>(glfwGetTime() * 70.0f) : current_rotation;
+
 	// Rotation around X to bring Y-Up
 	auto rotation_x = ror::matrix4_rotation_around_x(ror::to_radians(-90.0f));
 
 	auto translation = ror::matrix4_translation(0.0f, -3.0f, -10.0f);
-	auto rotation_y  = ror::matrix4_rotation_around_y(ror::to_radians(static_cast<float>(glfwGetTime() * 70)));
+	auto rotation_y  = ror::matrix4_rotation_around_y(ror::to_radians(current_rotation));
 	out_projection   = ror::make_perspective(ror::to_radians(60.0f), aspect_ratio, 0.5f, 100.0f);
 	out_view         = ror::make_look_at(ror::Vector3f(0.0f, 3.0f, 0.0f), ror::Vector3f(0.0f, 0.0f, -10.0f), ror::Vector3f(0.0f, 1.0f, 0.0f));
 
@@ -240,6 +274,10 @@ void key(GLFWwindow *window, int k, int s, int action, int mods)
 			glfwSetWindowShouldClose(window, GLFW_TRUE);
 			break;
 		case GLFW_KEY_SPACE:
+			do_animate = false;
+			break;
+		case GLFW_KEY_C:
+			do_animate = true;
 			break;
 		case GLFW_KEY_G:
 			show_skin = false;
@@ -262,8 +300,6 @@ void key(GLFWwindow *window, int k, int s, int action, int mods)
 		case GLFW_KEY_W:
 			break;
 		case GLFW_KEY_S:
-			break;
-		case GLFW_KEY_C:
 			break;
 		case GLFW_KEY_R:
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);

@@ -45,18 +45,18 @@ ror::Matrix4f get_ror_matrix4(ColladaMatrix &mat)
 	return matrix.transposed();
 }
 
-ror::Matrix4f get_animated_transform(AstroBoyTreePtr a_node, unsigned int a_index, double a_keyframe, double a_accumulate_time)
+ror::Matrix4f get_animated_transform(AstroBoyTreePtr a_node, unsigned int a_index, unsigned int a_keyframe_prev, double a_delta_time)
 {
 	if (astro_boy_animation_keyframe_matrices.find(a_index) != astro_boy_animation_keyframe_matrices.end())
 	{
-		assert(a_accumulate_time + 1 < astro_boy_animation_keyframes_count);
+		assert(a_keyframe_prev + 1 < astro_boy_animation_keyframes_count);
 
-		float a = astro_boy_animation_keyframe_times[a_accumulate_time];
-		float b = astro_boy_animation_keyframe_times[a_accumulate_time + 1];
-		float t = a_keyframe / (b - a);
+		float a = astro_boy_animation_keyframe_times[a_keyframe_prev];
+		float b = astro_boy_animation_keyframe_times[a_keyframe_prev + 1];
+		float t = a_delta_time / (b - a);
 
-		return ror::matrix4_interpolate(get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_accumulate_time]),
-										get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_accumulate_time + 1]), t);
+		return ror::matrix4_interpolate(get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_keyframe_prev]),
+										get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_keyframe_prev + 1]), t);
 	}
 	else
 	{
@@ -78,12 +78,12 @@ ror::Matrix4f get_world_matrix(AstroBoyTreePtr a_node, unsigned int a_index)
 
 // Recursive function to get valid parent matrix, This is very unoptimised
 // These matrices are calculated for each node, It should be cached instead, and have an iterative solution to it
-ror::Matrix4f get_world_matrix_animated(AstroBoyTreePtr a_node, unsigned int a_index, double a_keyframe, double a_accumulate_time)
+ror::Matrix4f get_world_matrix_animated(AstroBoyTreePtr a_node, unsigned int a_index, unsigned int a_keyframe_prev, double a_delta_time)
 {
 	if (a_node[a_index].m_parent_id == -1)
-		return get_animated_transform(a_node, a_index, a_keyframe, a_accumulate_time);
+		return get_animated_transform(a_node, a_index, a_keyframe_prev, a_delta_time);
 	else
-		return get_world_matrix_animated(a_node, a_node[a_index].m_parent_id, a_keyframe, a_accumulate_time) * get_animated_transform(a_node, a_index, a_keyframe, a_accumulate_time);
+		return get_world_matrix_animated(a_node, a_node[a_index].m_parent_id, a_keyframe_prev, a_delta_time) * get_animated_transform(a_node, a_index, a_keyframe_prev, a_delta_time);
 }
 
 std::map<int, std::pair<int, ror::Matrix4f>> get_world_matrices_for_skeleton(AstroBoyTreePtr root, unsigned int joint_count)
@@ -100,29 +100,14 @@ std::map<int, std::pair<int, ror::Matrix4f>> get_world_matrices_for_skeleton(Ast
 	return world_matrices;
 }
 
-std::vector<ror::Matrix4f> get_world_matrices_for_skinning(AstroBoyTreePtr root, unsigned int joint_count, double a_keyframe)
+std::vector<ror::Matrix4f> get_world_matrices_for_skinning(AstroBoyTreePtr root, unsigned int joint_count, unsigned int a_keyframe_prev, double a_delta_time)
 {
-	// Note this is very specific to AstroBoy
-	static double a_accumulate_time = 0.0;
-	const double  pf                = 1.166670 / 36.0;
-
-	static int a_time = 0;
-
-	a_accumulate_time += a_keyframe;
-	a_time = a_accumulate_time / pf;
-
-	if (a_accumulate_time > 1.66670 || (a_time > astro_boy_animation_keyframes_count - 5))        // Last 5 frames don't quite work with the animation loop, so ignored
-	{
-		a_accumulate_time = 0.0;
-		a_time            = 0;
-	}
-
 	std::vector<ror::Matrix4f> world_matrices;
 	world_matrices.reserve(joint_count);
 
 	for (unsigned int i = 0; i < joint_count; ++i)
 	{
-		auto matrix = get_world_matrix_animated(root, i, a_keyframe, a_time);
+		auto matrix = get_world_matrix_animated(root, i, a_keyframe_prev, a_delta_time);
 		matrix      = matrix * get_ror_matrix4(astro_boy_skeleton_bind_shape_matrix);        // at the moment bind_shape is identity
 		world_matrices.push_back(matrix);
 	}
