@@ -24,8 +24,13 @@
 
 #pragma once
 
-#include "astro_boy.hpp"
+#include "astro_boy_animation.hpp"
+#include "astro_boy_geometry.hpp"
 #include "geometry.hpp"
+#include "math/rorvector3.hpp"
+#include <cassert>
+#include <cstddef>
+#include <iostream>
 #include <map>
 
 ror::Matrix4f get_ror_matrix4(ColladaMatrix &mat)
@@ -40,6 +45,27 @@ ror::Matrix4f get_ror_matrix4(ColladaMatrix &mat)
 	return matrix.transposed();
 }
 
+ror::Matrix4f get_animated_transform(AstroBoyTreePtr a_node, unsigned int a_index, double a_keyframe, double a_accumulate_time)
+{
+	if (astro_boy_animation_keyframe_matrices.find(a_index) != astro_boy_animation_keyframe_matrices.end())
+	{
+		assert(a_accumulate_time + 1 < astro_boy_animation_keyframes_count);
+
+		float a = astro_boy_animation_keyframe_times[a_accumulate_time];
+		float b = astro_boy_animation_keyframe_times[a_accumulate_time + 1];
+		float t = a_keyframe / (b - a);
+
+		return ror::matrix4_interpolate(get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_accumulate_time]),
+										get_ror_matrix4(astro_boy_animation_keyframe_matrices[a_index][a_accumulate_time + 1]), t);
+	}
+	else
+	{
+		return get_ror_matrix4(a_node[a_index].m_transform);
+	}
+
+	return ror::Matrix4f();
+}
+
 // Recursive function to get valid parent matrix, This is very unoptimised
 // These matrices are calculated for each node, It should be cached instead, and have an iterative solution to it
 ror::Matrix4f get_world_matrix(AstroBoyTreePtr a_node, unsigned int a_index)
@@ -50,18 +76,73 @@ ror::Matrix4f get_world_matrix(AstroBoyTreePtr a_node, unsigned int a_index)
 		return get_world_matrix(a_node, a_node[a_index].m_parent_id) * get_ror_matrix4(a_node[a_index].m_transform);
 }
 
+// Recursive function to get valid parent matrix, This is very unoptimised
+// These matrices are calculated for each node, It should be cached instead, and have an iterative solution to it
+ror::Matrix4f get_world_matrix_animated(AstroBoyTreePtr a_node, unsigned int a_index, double a_keyframe, double a_accumulate_time)
+{
+	if (a_node[a_index].m_parent_id == -1)
+		return get_animated_transform(a_node, a_index, a_keyframe, a_accumulate_time);
+	else
+		return get_world_matrix_animated(a_node, a_node[a_index].m_parent_id, a_keyframe, a_accumulate_time) * get_animated_transform(a_node, a_index, a_keyframe, a_accumulate_time);
+}
+
 std::map<int, std::pair<int, ror::Matrix4f>> get_world_matrices_for_skeleton(AstroBoyTreePtr root, unsigned int joint_count)
 {
 	std::map<int, std::pair<int, ror::Matrix4f>> world_matrices;
 
 	for (unsigned int i = 0; i < joint_count; ++i)
 	{
-		auto matrix = get_world_matrix(root, i);
-		// auto wm = matrix * astro_boy_anim.bind_shape; // TODO: Do this once you have anything useful in bind_shape
+		auto matrix       = get_world_matrix(root, i);
+		matrix            = matrix * get_ror_matrix4(astro_boy_skeleton_bind_shape_matrix);        // at the moment bind_shape is identity
 		world_matrices[i] = std::make_pair(root[i].m_parent_id, matrix);
 	}
 
 	return world_matrices;
+}
+
+std::vector<ror::Matrix4f> get_world_matrices_for_skinning(AstroBoyTreePtr root, unsigned int joint_count, double a_keyframe)
+{
+	// Note this is very specific to AstroBoy
+	static double a_accumulate_time = 0.0;
+	const double  pf                = 1.166670 / 36.0;
+
+	static int a_time = 0;
+
+	a_accumulate_time += a_keyframe;
+	a_time = a_accumulate_time / pf;
+
+	if (a_accumulate_time > 1.66670 || (a_time > astro_boy_animation_keyframes_count - 5))        // Last 5 frames don't quite work with the animation loop, so ignored
+	{
+		a_accumulate_time = 0.0;
+		a_time            = 0;
+	}
+
+	std::vector<ror::Matrix4f> world_matrices;
+	world_matrices.reserve(joint_count);
+
+	for (unsigned int i = 0; i < joint_count; ++i)
+	{
+		auto matrix = get_world_matrix_animated(root, i, a_keyframe, a_time);
+		matrix      = matrix * get_ror_matrix4(astro_boy_skeleton_bind_shape_matrix);        // at the moment bind_shape is identity
+		world_matrices.push_back(matrix);
+	}
+
+	return world_matrices;
+}
+
+void add_vector(std::vector<float> &a_vertices, ror::Vector3f &&a_position, ror::Vector3f &&a_color,
+				std::vector<unsigned int> &a_indices, unsigned int a_index)
+{
+	a_vertices.emplace_back(a_position.x);
+	a_vertices.emplace_back(a_position.y);
+	a_vertices.emplace_back(a_position.z);
+
+	a_vertices.emplace_back(a_color.x);
+	a_vertices.emplace_back(a_color.y);
+	a_vertices.emplace_back(a_color.z);
+
+	// Write out indices
+	a_indices.push_back(a_index);
 }
 
 Geometry *get_lines_from_skeleton(std::map<int, std::pair<int, ror::Matrix4f>> &a_world_matrices,
@@ -70,37 +151,72 @@ Geometry *get_lines_from_skeleton(std::map<int, std::pair<int, ror::Matrix4f>> &
 	std::vector<float>        vertices;
 	std::vector<unsigned int> indices;
 
+	ror::Vector4f skeleton_color{0.5f, 0.5f, 0.5f, 0.5f};
+
+	ror::Vector4f red_color{0.4f, 0.0f, 0.0f, 0.5f};
+	ror::Vector4f green_color{0.0f, 0.4f, 0.0f, 0.5f};
+	ror::Vector4f blue_color{0.0f, 0.0f, 0.4f, 0.5f};
+
 	int index = 0;
+
+	// Add coordinate axis
+	auto o = ror::Vector3f(0.0f, 0.0f, 0.0f);
+	auto x = ror::Vector3f(1.0f, 0.0f, 0.0f);
+	auto y = ror::Vector3f(0.0f, 1.0f, 0.0f);
+	auto z = ror::Vector3f(0.0f, 0.0f, 1.0f);
+
+	add_vector(vertices, ror::Vector3f(o), ror::Vector3f(red_color * 2.5f), indices, index++);
+	add_vector(vertices, ror::Vector3f(o + x), ror::Vector3f(red_color * 2.5f), indices, index++);
+
+	add_vector(vertices, ror::Vector3f(o), ror::Vector3f(green_color * 2.5f), indices, index++);
+	add_vector(vertices, ror::Vector3f(o + y), ror::Vector3f(green_color * 2.5f), indices, index++);
+
+	add_vector(vertices, ror::Vector3f(o), ror::Vector3f(blue_color * 2.5f), indices, index++);
+	add_vector(vertices, ror::Vector3f(o + z), ror::Vector3f(blue_color * 2.5f), indices, index++);
+
+	float origin_scale = 0.3f;
 
 	for (auto &node : a_world_matrices)
 	{
-		auto origin = node.second.second.origin();
-		vertices.push_back(origin.x);
-		vertices.push_back(origin.y);
-		vertices.push_back(origin.z);
+		// Write out joint lines
+		add_vector(vertices, node.second.second.origin(), ror::Vector3f(skeleton_color), indices, index++);
 
 		if (node.second.first == -1)
 		{
 			// Origin, can be excluded
-			vertices.push_back(0.0f);
-			vertices.push_back(0.0f);
-			vertices.push_back(0.0f);
+			add_vector(vertices, ror::Vector3f(0.0f, 0.0f, 0.0f), ror::Vector3f(skeleton_color), indices, index++);
 		}
 		else
 		{
-			auto origin = a_world_matrices[node.second.first].second.origin();
-			vertices.push_back(origin.x);
-			vertices.push_back(origin.y);
-			vertices.push_back(origin.z);
+			add_vector(vertices, a_world_matrices[node.second.first].second.origin(), ror::Vector3f(skeleton_color), indices, index++);
 		}
 
-		indices.push_back(index);
-		indices.push_back(index + 1);
+		// Write out coordinate axis
+		auto x_axis = node.second.second.x_axis();
+		auto y_axis = node.second.second.y_axis();
+		auto z_axis = node.second.second.z_axis();
 
-		index += 2;
+		x_axis.normalize();
+		y_axis.normalize();
+		z_axis.normalize();
+
+		x_axis *= origin_scale;
+		y_axis *= origin_scale;
+		z_axis *= origin_scale;
+
+		auto origin = (node.second.second.origin());
+
+		add_vector(vertices, ror::Vector3f(origin), ror::Vector3f(red_color), indices, index++);
+		add_vector(vertices, ror::Vector3f(origin + x_axis), ror::Vector3f(red_color), indices, index++);
+
+		add_vector(vertices, ror::Vector3f(origin), ror::Vector3f(blue_color), indices, index++);
+		add_vector(vertices, ror::Vector3f(origin + y_axis), ror::Vector3f(blue_color), indices, index++);
+
+		add_vector(vertices, ror::Vector3f(origin), ror::Vector3f(green_color), indices, index++);
+		add_vector(vertices, ror::Vector3f(origin + z_axis), ror::Vector3f(green_color), indices, index++);
 	}
 
-	return new Geometry(a_vertex_shader_src, a_fragment_shader_src,
+	return new Geometry(a_vertex_shader_src, a_fragment_shader_src, nullptr,
 						sizeof(float) * vertices.size(), vertices.data(),
 						sizeof(unsigned int) * indices.size(), indices.data(), indices.size());
 }

@@ -22,10 +22,19 @@
 //
 // Version: 1.0.0
 
+#include <string>
+#include <map>
+#include <vector>
+
 typedef struct
 {
 	float v[16];
 } ColladaMatrix, *ColladaMatrixPtr;
+
+const unsigned int astro_boy_joints_count = 44;
+std::string astro_boy_joints_names[astro_boy_joints_count] = {"root", "spine01", "spine02", "neck01", "head", "L_clavicle", "L_shoulder", "L_bicep", "L_elbow", "L_forearm", "L_wrist", "L_pinky_01", "L_pinky_02", "L_middle_01", "L_middle_02", "L_index_01", "L_index_02", "L_thumb_01", "L_thumb_02", "R_clavicle", "R_shoulder", "R_bicep", "R_elbow", "R_forearm", "R_wrist", "R_pinky_01", "R_pinky_02", "R_middle_01", "R_middle_02", "R_index_01", "R_index_02", "R_thumb_01", "R_thumb_02", "hips", "L_hip", "L_knee_01", "L_knee_02", "L_ankle", "L_toeBall", "R_hip", "R_knee_01", "R_knee_02", "R_ankle", "R_toeBall"};
+
+ColladaMatrix astro_boy_skeleton_bind_shape_matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 
 typedef struct
 {
@@ -37,7 +46,8 @@ typedef struct
 	ColladaMatrix m_inverse;          // Inverse Joint Matrix.
 } AstroBoyTree, *AstroBoyTreePtr;
 
-AstroBoyTree astro_boy_tree[64] =
+const unsigned int astro_boy_nodes_count = 64;
+AstroBoyTree astro_boy_tree[astro_boy_nodes_count] =
 	{
 		{"deformation_rig", 0, -1, 0, {1, 0, 0, -0.33707, 0, 1, 0, -0.127721, 0, 0, 1, 0, 0, 0, 0, 1}, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}},
 		{"root", 1, 0, 1, {0.079633, -0.996824, 0, 0, 0.992539, 0.079291, -0.092624, 0.057089, 0.092329, 0.007376, 0.995701, 2.6942, 0, 0, 0, 1}, {0, 0.995701, 0.092623, -0.30639, -1, 0, 0, 0, 0, -0.092623, 0.995701, -2.82193, 0, 0, 0, 1}},

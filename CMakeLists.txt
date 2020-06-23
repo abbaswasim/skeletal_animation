@@ -14,7 +14,6 @@ set(TARGET_NAME simple_skeletal_animation)
 project(${TARGET_NAME} VERSION 1.0 LANGUAGES CXX C)
 
 if (CMAKE_BUILD_TYPE MATCHES "Debug")
-  target_compile_definitions(${TARGET_NAME} PUBLIC RORDEBUG)
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
   set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
 else()
